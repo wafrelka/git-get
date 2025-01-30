@@ -1,0 +1,96 @@
+#!/bin/bash
+
+set -ueo pipefail
+
+error() {
+    printf "%s\n" "$@" >&2
+}
+
+fatal() {
+    error "$@"
+    exit 1
+}
+
+if ! (ghq --version > /dev/null 2>&1); then
+    fatal "ghq is not installed"
+fi
+
+ROOT_DIR="$(ghq root)"
+
+if ! [ -d "$ROOT_DIR" ]; then
+    fatal "\`ghq root\` does not return a valid root directory"
+fi
+
+usage() {
+    cat >&2 <<EOS
+usage: ${0##*/} [OPTIONS]... <source>
+OPTIONS
+    -h, --help:             show this message
+EOS
+}
+
+src=""
+
+while [ $# -ne 0 ]; do
+    case "$1" in
+        "-h" | "--help")
+            usage && exit
+            ;;
+        "-"*)
+            error "unknown option: $1" && usage && exit 1
+            ;;
+        *)
+            src="$1"
+            ;;
+    esac
+    shift
+done
+
+if [ -z "$src" ]; then
+    usage && exit 1
+fi
+
+get_remote() {
+    git remote -v | grep -E "\(fetch\)$" | head -n 1 | awk '{print $2}'
+}
+
+parse_repo() {
+    remote="$1"
+    if ! [[ "$remote" = *"://"* ]]; then
+        remote="${remote/":"/"/"}"
+    fi
+    repo="${remote/#*"://"/}"
+    repo="${remote/%".git"/}"
+    repo="${repo/#*"@"/}"
+    printf "%s\n" "$repo"
+}
+
+parse_repo_short() {
+    repo="$(parse_repo "$@")"
+    repo="${repo/#"github.com/"/}"
+    printf "%s\n" "$repo"
+}
+
+main() {
+    temp_dir="$(mktemp -d -p "$ROOT_DIR")"
+
+    pushd "$temp_dir" > /dev/null
+    git clone "$1" .
+    remote="$(get_remote)"
+    repo="$(parse_repo_short "$remote")"
+    echo "repository: $repo"
+    popd > /dev/null
+
+    dest_dir="$ROOT_DIR/$repo"
+    mkdir -p "$dest_dir"
+
+    if [ -d "$dest_dir/.git" ]; then
+        echo "destination directory is not empty: $dest_dir" >&2
+        exit 1
+    fi
+    rmdir "$dest_dir"
+
+    mv "$temp_dir" "$dest_dir"
+}
+
+main "$src"
