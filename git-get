@@ -50,8 +50,12 @@ if [ -z "$src" ]; then
     usage && exit 1
 fi
 
-get_remote() {
-    git remote -v | grep -E "\(fetch\)$" | head -n 1 | awk '{print $2}'
+resolve_url() {
+    temp_dir="$(mktemp -d)"
+    git -C "$temp_dir" init . >/dev/null 2>&1
+    git -C "$temp_dir" remote add origin "$1"
+    git -C "$temp_dir" remote get-url origin
+    rm -rf "$temp_dir"
 }
 
 parse_repo() {
@@ -72,25 +76,19 @@ parse_repo_short() {
 }
 
 main() {
-    temp_dir="$(mktemp -d -p "$ROOT_DIR")"
-
-    pushd "$temp_dir" > /dev/null
-    git clone "$1" .
-    remote="$(get_remote)"
+    remote="$(resolve_url "$src")"
     repo="$(parse_repo_short "$remote")"
     echo "repository: $repo"
-    popd > /dev/null
 
     dest_dir="$ROOT_DIR/$repo"
-    mkdir -p "$dest_dir"
+    mkdir -p "$(dirname "$dest_dir")"
 
     if [ -d "$dest_dir/.git" ]; then
         echo "destination directory is not empty: $dest_dir" >&2
         exit 1
     fi
-    rmdir "$dest_dir"
 
-    mv "$temp_dir" "$dest_dir"
+    git clone "$src" "$dest_dir"
 }
 
 main "$src"
